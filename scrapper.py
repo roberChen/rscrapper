@@ -1,4 +1,4 @@
-from browser import *
+from .browser import *
 import time
 import json
 

@@ -1,0 +1,151 @@
+#Help of scrapper package
+##Intro
+scrapper module is a package which aims to make scrapping easier. Scrapping with scrapper package is convenience and effective, while you don't need to think about many issues such as cookies or codec.
+
+With scrapper you can browse a website and scrapper will automatically save the cookies. Also you can save what you've get. You can even save the condition of the scrapper itself and reload it afterward.
+
+##User Guide of scrapper:
+###Basic using
+To use it, you should first load it.
+```
+from scrapper import *
+```
+>note: the loading may be failed due to environment, still in progress yet
+
+There are several elements in scrapper:
+```
+class Base : The basical class of following classes
+
+class Browser: Browser Object which saves the webpages it browsed, 
+it will automatically produce a User_Agent to fool the servers.
+and save all the cookies with Cookiestack object
+
+class Cookiestack the maintainer of cookies, only for Webpage object
+
+class Webpage: the object which implement all methods to view
+any websites with datas or params, also provides method to save files.
+
+class Scrapper: A superclass which provides a framwork to scrap any websites.
+```
+
+Start using it:
+for an example we will auto login the website [yamibo](https://bbs.yamibo.com '百合会:https://bbs.yamibo.com'). We should first creat a subclass of scrapper for scrapping:
+```
+class yamibo(Scrapper):
+    def __init__(self):
+        Scrapper.__init__(self)
+
+    def scrap(self):
+        ...
+```
+The scrap() function defines the actions of scrapping, in other words, you should write all you want to do inside this function.
+
+Then all you should do is just run:
+```
+scrapper = yamibo()
+scrapper.scrap()
+```
+###How to define scrap() function
+To write scrap(), you should first learn about class Browser and class Webpage.
+```
+class Browser(Base)
+     |  Browser(fname='', cookiestack=None, timeout=5, retry=2)
+     |  
+     |  Method resolution order:
+     |      Browser
+     |      Base
+     |      builtins.object
+     |  
+     |  Methods defined here:
+     |  
+     |  __call__(self, *args, **kwargs)
+     |      Call self as a function.
+     |  
+     |  __init__(self, fname='', cookiestack=None, timeout=5, retry=2)
+     |      Initialize self.  See help(type(self)) for accurate signature.
+     |  
+     |  browse(self, url, fname=None, save=False, nocookie=False, codec=None, timeout=None, retry=None, data=None, param=None, method='GET')
+     |  
+     |  get_user_agent(self)
+     |  
+     |  load(self, fname)
+     |  
+     |  save(self, fname)
+
+
+class Webpage(Base)
+     |  Webpage(url, cookiestack=None, timeout=10, retry=2, User_agent=None, codec='utf8', data: dict = {}, method='GET', param: dict = {}, header: dict = {})
+     |  
+     |  Method resolution order:
+     |      Webpage
+     |      Base
+     |      builtins.object
+     |  
+     |  Methods defined here:
+     |  
+     |  __init__(self, url, cookiestack=None, timeout=10, retry=2, User_agent=None, codec='utf8', data: dict = {}, method='GET', param: dict = {}, header: dict = {})
+     |      Initialize self.  See help(type(self)) for accurate signature.
+     |  
+     |  addcookies(self, cookiestack=None)
+     |  
+     |  get(self, codec=None, timeout=2, retry=2, debug=False, useragent=None, nohtml=False, headers=None, data={}, param={}, method=None, **argv)
+     |  
+     |  save(self, fname='')
+     |  
+     |  xpath(self, path)
+     |  ----------------------------------------------------------------------
+     |  Methods inherited from Base:
+     |  
+     |  load(self, fname)
+```
+If you want to scrap a website, you have to creat a Webpage object:
+```
+web = Webpage('https://bbs.yamibo.com', codec='gbk')
+```
+Then use method get() to scrap it:
+```
+web.get()
+```
+You can add cookiestack, data or params ,etc. to web object.
+If you want to save the set-cookies to cookiejar, you have to do things as following:
+```
+your_cookiejar.update(web) #your_cookiejar is a Cookiejar object defines as your_cookiejar = Cookiejar()
+```
+And later you can use the cookies to view other websites:
+```
+web2 = Webpage(url,cookiejar=your_cookiejar)
+```
+Browser object will automatically does the things above. If you want to browse a series of webpages,you just need to do like this:
+```
+browser.browse(url1)
+browser.browse(url2)
+...
+```
+`Browser.browse()` returns a Webpage object. The input of `Browser.browse` is same to `Webpage.get()`
+If you want to select some data from a webpage, you can use the method `Webpage.xpath()`, it retruns a lxml.etree object.
+
+A `Scrapper.scrap()` to auto login the forum is defined like this:
+```
+def scrap(self):
+    self.browser.timeout = 10
+    forum = self.browse('https://bbs.yamibo.com', codec='gbk')
+    sendmail_src = forum.xpath('//script')[-3].attrib['src']
+    send_web = self.browse(forum.url + '/' + sendmail_src, codec='gbk')
+    form = self.browse(
+        'https://bbs.yamibo.com/member.php?mod=logging&action=login&infloat=yes&handlekey=login&inajax=1&ajaxtarget=fwin_content_login', \
+        codec='gbk')
+    formhash = form.xpath('//input[@type="hidden"]')[0].attrib['value']
+    action = form.xpath('//form')[0].attrib['action']
+    data = {'formhash': formhash,
+            'referer': 'https://bbs.yamibo.com/forum.php',
+            'loginfield': 'username',
+            'username': 'user_name',
+            'password': 'pass_word',
+            'questionid': '0',
+            'answer': ''}
+    post = self.browse('https://bbs.yamibo.com/' + action, data=data, codec='gbk')
+    forum = self.browse('https://bbs.yamibo.com', codec='gbk')
+    self.browser.cookiestack.show()
+    self.save()
+```
+>Not complete yet.
