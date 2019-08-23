@@ -299,7 +299,7 @@ class Webpage(Base):
         return res + split[1:]
 
 
-        # return: [scheme,]
+        # return: [scheme,internet,dom,port,path,...]
 
 
 
