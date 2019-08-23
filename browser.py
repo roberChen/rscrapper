@@ -291,6 +291,17 @@ class Webpage(Base):
         with open(fname,mode) as f:
             f.write(self.html or self.read)
 
+    def urlsplit(self):
+        [scheme,specificpart] = self.url.split('://')
+        split = specificpart.split('/')
+        [internet,domain,port] = re.findall('([^\.]*\.)?([^:\.]\.[^:\.]*)(:[0-9]*)',split[0])[0]
+        res = [scheme,internet[:-1],domain,port[1:]]
+        return res + split[1:]
+
+
+        # return: [scheme,]
+
+
 
 
 if __name__ == "__main__":
