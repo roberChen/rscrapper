@@ -16,12 +16,14 @@ class Scrapper(Base):
         self.urlhisto[url].append(time.localtime())
         return self.browser.browse(url, *argv, **kwargs)
 
-    def save(self,scrapperfname='scrapper.1',browserfname='browser.1'):
+    def save(self,scrapperfname='scrapper.1',browserfname='browser.1',\
+             cookiestackfname='cookiestack.1'):
         d = {'urlhisto':self.urlhisto,
-             'browserf':browserfname}
+             'browserf':browserfname,
+             'cookiestackf':cookiestackfname}
         with open(scrapperfname,'w') as f:
             json.dump(d,f)
-        self.browser.save(browserfname)
+        self.browser.save(browserfname,cookiestackfname)
 
     def load(self,scrapperfname):
         with open(scrapperfname,'r') as f:

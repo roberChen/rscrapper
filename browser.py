@@ -7,6 +7,8 @@ import json
 import time
 from pprint import pprint
 from urllib import parse
+import socket
+import sys,os
 
 from lxml import html
 import random
@@ -31,7 +33,7 @@ class Browser(Base):
         self.cookiestack.delexpires()
         self.User_agent = self.get_user_agent()
 
-    def save(self,fname):
+    def save(self,fname,cookiefname):
         webpages_l = [{'url':web.url,
                        'html' if web.html else 'read':web.html or str(web.read),
                        'headers':web.headers,
@@ -40,7 +42,7 @@ class Browser(Base):
                        'method':web.method,
                        'param':web.param} for web in self.webpages.values()]
         d = {'webpages':webpages_l,
-             'cookiestack':self.cookiestack.cookies,
+             'cookiestackfname':cookiefname,
              'timeout':self.timeout,
              'retry':self.retry,
              'codec':self.codec,
@@ -48,6 +50,7 @@ class Browser(Base):
         with open(fname,'w') as f:
             jstxt = json.dumps(d)
             f.write(jstxt)
+        self.cookiestack.saveall(cookiefname)
 
     def load(self,fname):
         with open(fname,'r') as f:
@@ -57,7 +60,7 @@ class Browser(Base):
             self.codec   = d['codec']
             self.User_agent = d['User_agent']
             self.cookiestack = Cookiestack()
-            self.cookiestack.cookies = d['cookiestack']
+            self.cookiestack.loadall(d['cookiestackfname'])
             self.cookiestack.delexpires()
             self.webpages = []
             for web in d['webpages']:
@@ -72,13 +75,15 @@ class Browser(Base):
                 self.webpages.append(webobj)
 
     def browse(self,url,fname=None,save=False,nocookie=False,codec=None,\
-               timeout=None,retry=None,data=None,param=None,method='GET'):
+               timeout=None,retry=None,data=None,param=None,method='GET',\
+               nohtml=False,unverifiable=False):
         cookiestack = self.cookiestack if not nocookie else None
         web = Webpage(url,User_agent=self.User_agent,cookiestack=cookiestack, \
                       timeout=timeout or self.timeout,retry=retry or self.retry,\
                       codec=codec or self.codec,data=data,param=param,method=method)
-        web.get()
-        self.cookiestack.update(web)
+        web.get(nohtml=nohtml,unverifiable=unverifiable)
+        if not self.cookiestack.update(web):
+            return web
         if fname or save:
             fname = fname or web.url+'.save'
             mode = 'w' if web.html else 'wb'
@@ -98,13 +103,22 @@ class Browser(Base):
         print('User-agent: ', using_agent)
         return using_agent
 
+
+
     def __call__(self, *args, **kwargs):
         return self.browse(*args,**kwargs)
 
 
 class Cookiestack(Base):
-    def __init__(self):
+    def __init__(self,fname='cookie.1'):
         self.cookies = {}
+        self.savefile = fname
+        self.load()
+        self.delexpires()
+        self.filep = open(fname,'a')
+        for webdom,dct in self.cookies.items():
+            for v in dct.values():
+                self.save(v,webdom)
         # {'name':name,
         #  'value':value,
         #  keys:vals}
@@ -112,9 +126,11 @@ class Cookiestack(Base):
         # 'expires' , 'secure' , 'path' etc.
 
     def update(self,web,debug=False):
-        webdom = re.findall('[^\.]*\.([^\./]*\.[^\./]*)/?.*',web.url)[0]
+        webdom = UrlList(web.url)[2]
         if webdom not in self.cookies:
             self.cookies[webdom] = {}
+        if not web.response:
+            return 0
         for ele in web.response.headers._headers:
             if ele[0] == 'Set-Cookie':
                 # div cookies by ';':
@@ -139,12 +155,14 @@ class Cookiestack(Base):
                 else:
                     print('Add:',d['name'],d['value'])
                 self.cookies[webdom][d['name']] = d
+                self.save(d,webdom)
+        return 1
 
 
     def getcookies(self,url,isdom=False):
         if url == '':
             print('Error: url should not be empty')
-        webdom = re.findall('[^\.]*\.([^\./]*\.[^\./]*)/?.*', url)[0] if not isdom else url
+        webdom = UrlList(url)[2]
         res = {}
         if webdom not in self.cookies:
             print('Cookies of domain',webdom,'cannot be found.')
@@ -166,19 +184,37 @@ class Cookiestack(Base):
                 if time.gmtime() > exptime:
                     domd.pop(ele)
 
-    def load(self,fname):
-        with open(fname,'r') as file:
-            self.cookies = json.load(file)
-        self.delexpires()
 
-    def save(self,fname):
-        with open(fname,'w') as file:
-            json.dump(self.cookies,file)
+    def save(self,d,dom):
+        dct = {'webdom':dom,
+               'd':d}
+        self.filep.write(json.dumps(dct)+'\n')
+    def load(self):
+        if not self.savefile in os.listdir():
+            return 0
+        with open(self.savefile,'r') as fp:
+            fp.seek(0,0)
+            for l in fp.readlines():
+                print(l)
+                dct = json.loads(l)
+                print('loads:',dct)
+                webdom = dct['webdom']
+                d = dct ['d']
+                if webdom not in self.cookies:
+                    self.cookies[webdom] = {}
+                self.cookies[webdom][d['name']] = d
+    def saveall(self,fname='cookiestack.1'):
+        with open(fname,'w') as fp:
+            json.dump(self.cookies,fp)
+    def loadall(self,fname='cookiestack.1'):
+        with open(fname,'r') as fp:
+            self.cookies = json.load(fp)
 
-    def domchk(self,url,isdom=False):
+
+    def domchk(self,url):
         print('checking url:',url)
-        webdom = re.findall('[^\.]*\.([^\./]*\.[^\./]*)/?.*', url)[0] if not isdom else url
-        return webdom in self.cookies.keys()
+        webdom = UrlList(url)
+        return webdom[2] in self.cookies.keys()
 
     def show(self):
         for (doms,d) in self.cookies.items():
@@ -203,62 +239,86 @@ class Cookiestack(Base):
     def __call__(self, *args, **kwargs):
         self.updates(*args,**kwargs)
 
+    def __exit__(self):
+        self.filep.close()
+
 class Webpage(Base):
     def __init__(self,url,cookiestack=None,timeout=10,retry=2, \
-                 User_agent=None,codec='utf8',data:dict={},method='GET',param:dict={},\
-                 header:dict={}):
+                 User_agent=None,codec='utf8',data:dict=None,method='GET',param:dict=None,\
+                 header:dict=None,unverifiable=False):
         self.url = url
-        self.headers = header
-        self.param:dict = param
+        self.headers = header or {}
+        self.param:dict = param or {}
         self.request = None
         self.response = None
         self.method = method
         self.html = None
         self.read = None
         self.codec = codec
-        self.data:dict = data
+        self.data:dict = data or {}
         self.cookiestack = cookiestack
         self.User_Agent = User_agent
         self.timeout = timeout
         self.retry = retry
 
-    def get(self,codec=None, timeout=2, retry=2, debug=False, useragent=None, \
-             nohtml=False,headers=None,data={},param={},method=None,**argv):
-        data.update(self.data or {})
-        self.data = data
+    def get(self,*argv,codec=None, timeout=2, retry=2, debug=False, \
+             nohtml=False,unverifiable=False):
+        if not self.url:
+            return None
         if self.data:
             data = parse.urlencode(self.data).encode('ascii')
         else:
             data = None
-        param.update(self.param or {})
-        self.param = param
         self.codec = codec or self.codec or 'utf8'
         if not self.url.startswith('https://') and not self.url.startswith('http://'):
             self.url = 'https://' + self.url
-        self.User_Agent = useragent or self.User_Agent
         if 'User-Agent' not in self.headers:
             self.headers['User-Agent'] = self.User_Agent
-        if headers:
-            self.headers.update(headers)
         self.headers.update(argv)
         self.addcookies()
         print('Start downloading:', self.url)
         try:
-            self.request = req.Request(self.url, headers=self.headers, data=data)
-            self.param = param.update(self.param)
+            self.request = req.Request(self.url, headers=self.headers, data=data,\
+                                       unverifiable=unverifiable)
             self.request.param = self.param
             self.method = 'GET' if not self.data else 'POST'
-            self.request.method = method or self.method
+            self.request.method = self.method
             if debug:
                 print(self.request.data)
             self.response = req.urlopen(self.request, timeout=timeout)
         except urllib.error.URLError as e:
             print('Download error No.', e.errno, ':\n\t', e.reason)
-            if retry > 0:
-                retry -= 1
-                if hasattr(e, 'code') and 500 <= e.code < 600:
-                    return self.request(timeout=timeout, retry=retry - 1, debug=debug)
-        self.read = self.response.read()
+            if hasattr(e, 'code') and 500 <= e.code < 600:
+                print('Error code:',e.code)
+            self.reget(timeout=timeout, retry=retry - 1, debug=debug,nohtml=nohtml)
+        try:
+            _read = BytesIO()
+            bs , reading , total = 1024 * 8 , 0 , 0
+            if 'Content_Length' in self.response.headers:
+                content_lenth = int(self.response.getheader('Content-Length'))
+            else:
+                content_lenth = 0
+            while True:
+                block = self.response.read(bs)
+                if not block:
+                    break
+                reading += len(block)
+                if content_lenth:
+                    print('\rLoading:{}%\t{} bytes.'.format(reading*100/content_lenth,reading) \
+                          ,end='')
+                else:
+                    print('\rLoading:{} bytes.'.format(reading),end='')
+                _read.write(block)
+            self.read = _read.getvalue()
+            if reading < content_lenth:
+                print('Error: retrival incomplite. {} / {} bytes'.format(reading,content_lenth))
+                self.reget(timeout=timeout, retry=retry - 1, debug=debug,nohtml=nohtml)
+        except socket.timeout:
+            print('Socket timeout:',timeout)
+            time.sleep(1)
+            self.reget(timeout=timeout, retry=retry - 1, debug=debug,nohtml=nohtml)
+        except:
+            return self.url
         self.encode = self.response.getheader('Content-Encoding')
         if debug:
             print(self.read, '\nEncode:', self.encode)
@@ -268,9 +328,24 @@ class Webpage(Base):
             file = gzip.GzipFile(fileobj=byte)
             self.read = file.read()
         if nohtml:
+            print('Return webpage.read')
             return self.read
         self.html = self.read.decode(self.codec, errors='ignore')
+        print('Return webpage.html')
         return self.html
+
+    def reget(self,timeout, retry, debug,nohtml=False,sleep=2):
+        time.sleep(sleep)
+        if retry == 0:
+            ans = input('Retry is now zero, do you still want' + \
+                        'to retry after failed this time?')
+            retry = 1 if ans == 'Yes' or ans == 'Y' \
+                         or ans == 'yes' or ans == 'y' else retry
+        if retry > 0:
+            retry -= 1
+            return self.get(timeout=timeout, retry=retry - 1, debug=debug,nohtml=nohtml)
+        else:
+            return None
 
     def xpath(self,path):
         if not self.html:
@@ -289,20 +364,58 @@ class Webpage(Base):
         fname = fname or self.url+'.save' if self.html else self.url+'.byte'
         mode = 'w' if self.html else 'wb'
         with open(fname,mode) as f:
+            print('save mode:',mode)
             f.write(self.html or self.read)
 
-    def urlsplit(self):
-        [scheme,specificpart] = self.url.split('://')
-        split = specificpart.split('/')
-        [internet,domain,port] = re.findall('([^\.]*\.)?([^:\.]\.[^:\.]*)(:[0-9]*)',split[0])[0]
-        res = [scheme,internet[:-1],domain,port[1:]]
-        return res + split[1:]
 
 
-        # return: [scheme,internet,dom,port,path,...]
+class UrlList():
+    def __init__(self,url='',scheme='',internet='',dom='',port='',*path,ftype='.html'):
+        self.urllist = [scheme,internet,dom,port,*path,ftype] \
+                            if not url else self.urlsplit(url)
+        self.fullurl = url or ''
+
+    def getfullurl(self,update=False):
+        if self.fullurl and not update:
+            return self.fullurl
+        self.fullurl = self.urllist[0] + '://' + self.urllist[1] + '.' + self.urllist[2] + \
+               ('' if not self.urllist[3] else (':'+self.urllist[3])) + \
+                '/' + '/'.join(self.urllist[5:-1]) + '.' + self.urllist[-1]
+        return self.fullurl
 
 
+    def urlsplit(self, url):
+        if '://' in url:
+            [scheme, specificpart] = url.split('://')
+        else:
+            scheme, specificpart = '', url
+        if '?' in specificpart:
+            mainpart,data = specificpart.split('?')
+            params = data.split('&')
+        else:
+            mainpart = specificpart
+            params = []
+        split = mainpart.split('/')
+        resl = re.findall('([^\.]*\.)?([^:\.]*\.[^:\.]*)(:[0-9]*)?', split[0])
+        if resl:
+            (internet, domain, port) = resl[0]
+        else:
+            (internet, domain, port) = ('', '', '')
+        if len(split) > 1:
+            if '.' in split[-1]:
+                f, type = split[-1].split('.')
+            else:
+                f, type = split[-1], ''
+            self.urllist = [scheme, internet[:-1], domain, port[1:],*split[1:-1],f,*params,type]
+        else:
+            self.urllist = [scheme, internet[:-1], domain, port[1:],*params]
+        print(self.urllist)
+        return self.urllist
 
+    def __getitem__(self, item):
+        return self.urllist[item]
+    def __str__(self):
+        return str(self.urllist)
 
 if __name__ == "__main__":
     browser = Browser(timeout=10)
