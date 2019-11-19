@@ -498,8 +498,8 @@ if __name__ == "__main__":
     data = {'formhash':formhash,
                         'referer':'https://bbs.yamibo.com/forum.php',
                         'loginfield':'username',
-                        'username':'scrappyyamibo',
-                        'password':'scrappypassword163',
+                        'username':'',
+                        'password':'',
                         'questionid':'0',
                         'answer':''}
     post = browser.browse('https://bbs.yamibo.com/' + action,data=data,codec='gbk')
