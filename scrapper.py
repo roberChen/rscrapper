@@ -31,6 +31,12 @@ class Scrapper(Base):
             self.urlhisto = d['urlhisto']
             self.browser.load(d['browserfname'])
 
+    def recurse(self,html,recurfunc,depth=3):
+        # function recurfunc: get the html and returns the
+        # full url of newly detected urls as a iterable object
+        web = self.browse(html)
+        for url in recurfunc(web.html):
+            self.recurse(html,recurfunc,depth-1)
 
 if __name__ == '__main__':
     class yamibo(Scrapper):
